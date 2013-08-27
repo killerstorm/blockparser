@@ -47,6 +47,14 @@ all:parser
 	@${CPLUS} -MD ${INC} ${COPT}  -c callback.cpp -o .objs/callback.o
 	@mv .objs/callback.d .deps
 
+.objs/fts.o : cb/fts.cpp
+	@echo c++ -- cb/fts.cpp
+	@mkdir -p .deps
+	@mkdir -p .objs
+	@${CPLUS} -MD ${INC} ${COPT}  -c cb/fts.cpp -o .objs/fts.o
+	@mv .objs/fts.d .deps
+
+
 .objs/allBalances.o : cb/allBalances.cpp
 	@echo c++ -- cb/allBalances.cpp
 	@mkdir -p .deps
@@ -161,6 +169,7 @@ all:parser
 
 OBJS=                       \
     .objs/allBalances.o     \
+    .objs/fts.o             \
     .objs/callback.o        \
     .objs/closure.o         \
     .objs/dumpTX.o          \

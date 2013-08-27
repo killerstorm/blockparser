@@ -95,7 +95,7 @@
     static inline uint8_t *allocHash256() { return         PagedAllocator<uint256_t>::alloc(); }
     static inline uint8_t *allocHash160() { return         PagedAllocator<uint160_t>::alloc(); }
 
-    #define WANT_DENSE
+//    #define WANT_DENSE
     #if defined(WANT_DENSE)
 
         // Faster, uses more RAM
