@@ -380,8 +380,17 @@ static void mapBlockChainFiles()
         home = ".";
     }
 
+
     std::string homeDir(home);
     std::string blockDir = homeDir + coinName + std::string("blocks");
+
+    // override?
+
+    const char *datadir= getenv("DATADIR");
+    if (datadir) {
+        std::string dataDir(datadir);
+        blockDir = dataDir + std::string("blocks");
+    }
 
     struct stat statBuf;
     int r = stat(blockDir.c_str(), &statBuf);
@@ -514,11 +523,15 @@ static bool buildBlock(
 )
 {
     static const uint32_t expected =
-    #if defined(LITECOIN)
+#if defined(LITECOIN)
         0xdbb6c0fb
-    #else
+#else
+#if defined(TESTNET)
+        0x0709110b
+#else
         0xd9b4bef9
-    #endif
+#endif
+#endif
     ;
 
     if(unlikely(e<=(8+p))) {
