@@ -14,7 +14,7 @@
 
 #include <iostream>
 
-typedef std::pair<int64_t, int64_t> SatoshiRange;
+typedef std::pair<uint64_t, uint64_t> SatoshiRange;
 typedef std::vector<SatoshiRange> SatoshiRanges;
 typedef std::vector<SatoshiRanges> ManySatoshiRanges;
 
@@ -37,6 +37,7 @@ struct Outpoint {
 };
 
 typedef std::map<Outpoint, SatoshiRanges> TSRMap;
+typedef std::map<uint64_t, Outpoint> SatoshiMap;
 
 uint64_t satoshiBeforeBlock(int height) {
     return height * 50 * uint64_t(100000000); // TODO: fixme
@@ -47,11 +48,15 @@ struct FTS_UTXO: public Callback
     int64_t cutoffBlock;
     optparse::OptionParser parser;
     TSRMap utxoRanges;
+    SatoshiMap satoshiMap;
 
-    ManySatoshiRanges inRanges;
-    std::vector<int64_t> outValues;
-    Hash160 curTxHash;
+    SatoshiRanges inRanges, coinbaseInRanges;
+    std::vector<uint64_t> outValues, coinbaseOutValues;
+    Hash160 curTxHash, coinbaseTxHash;
     uint64_t curHeight;
+    bool curTxHasInputs;
+
+    double startFirstPass, startSecondPass;
 
     FTS_UTXO()
     {
@@ -73,60 +78,45 @@ struct FTS_UTXO: public Callback
     virtual const char                   *name() const         { return "fts_utxo"; }
     virtual const optparse::OptionParser *optionParser() const { return &parser;       }
     virtual bool                         needTXHash() const    { return true;          }
+    virtual void aliases(std::vector<const char*> &v) const {  v.push_back("fts");   }
 
-    virtual void aliases(
-        std::vector<const char*> &v
-    ) const
-    {
-        v.push_back("fts");
-    }
-
-    virtual int init(
-        int argc,
-        const char *argv[]
-    )
-    {
+    virtual int init(int argc, const char *argv[])  {
         optparse::Values &values = parser.parse_args(argc, argv);
         cutoffBlock = values.get("atBlock");
-
+        
         if(0<=cutoffBlock) {
             info("only taking into account transactions before block %" PRIu64 "\n", cutoffBlock);
         }
-
+        
         info("analyzing blockchain ...");
+        startFirstPass = usecs();
         return 0;
     }
+    virtual void start(const Block *s, const Block *e) {
+        startSecondPass = usecs();
+    }
 
-    virtual void      startTX(const uint8_t *p, const uint8_t *hash)       {
+    virtual void startTX(const uint8_t *p, const uint8_t *hash) {
         inRanges.clear();
         outValues.clear();
         curTxHash = hash;
+        curTxHasInputs = false;
     }
 
-    virtual void        endTX(const uint8_t *p                     )       {
-        SatoshiRanges flatInRanges;
-        for (ManySatoshiRanges::iterator it = inRanges.begin(); it != inRanges.end(); ++it) {
-            flatInRanges.insert(flatInRanges.end(), it->begin(), it->end());
-        }
-
-        bool isCoinbase = false;
-
-        if (flatInRanges.empty()) { // it is a coinbase
-            isCoinbase = true;
-            flatInRanges.push_back(SatoshiRange(satoshiBeforeBlock(curHeight), satoshiBeforeBlock(curHeight + 1)));
-        }
+    virtual void processTX(SatoshiRanges &inRanges, std::vector<uint64_t> &outValues, Hash256 curTxHash, bool isCoinbase = false) {
+        //showHex(curTxHash); std::cout << std::endl;
 
         Outpoint outpt(curTxHash, 8);
 
         SatoshiRange curRange(0, 0);
-        SatoshiRanges::iterator inRangeIt = flatInRanges.begin();
+        SatoshiRanges::iterator inRangeIt = inRanges.begin();
         
-        for (int i = 0; i < outValues.size(); ++i) {
+        for (size_t i = 0; i < outValues.size(); ++i) {
             SatoshiRanges outRanges;
-            int64_t val_left = outValues[i];
+            uint64_t val_left = outValues[i];
             while (val_left > 0) {
                 if (curRange.first == curRange.second) { // cur range is empty
-                    if (inRangeIt == flatInRanges.end())
+                    if (inRangeIt == inRanges.end())
                         throw std::range_error("wtf tx outputs exceed inputs");
                     curRange = *inRangeIt;
                     ++inRangeIt;
@@ -138,13 +128,42 @@ struct FTS_UTXO: public Callback
                 val_left -= (orange.second - orange.first);
                 curRange.first = orange.second;
                 outRanges.push_back(orange);
-                if (!isCoinbase)
-                    std::cout << orange.first << ":" << orange.second << std::endl;
+                satoshiMap.insert(std::pair<uint64_t, Outpoint>(orange.first, outpt));
+                //if (!isCoinbase)
+                //std::cout << i << ":" <<  orange.first << ":" << orange.second << std::endl;
             }
             outpt.outindex = i;
             utxoRanges.insert(std::pair<Outpoint, SatoshiRanges>(outpt, outRanges));
         }
+
+        if (!isCoinbase) {
+            // ranges which were not consumed by outputs go to coinbase tx
+            if (curRange.first != curRange.second)
+                coinbaseInRanges.push_back(curRange);
+            while (inRangeIt != inRanges.end()) {
+                coinbaseInRanges.push_back(*inRangeIt);
+                ++inRangeIt;
+            }
+        } else {
+            // TODO
+        }
     }
+
+
+    virtual void endTX(const uint8_t *p) {
+        if (curTxHasInputs) 
+            processTX(inRanges, outValues, curTxHash);
+        else {
+            coinbaseInRanges.clear();
+            coinbaseInRanges.push_back(SatoshiRange(satoshiBeforeBlock(curHeight), satoshiBeforeBlock(curHeight + 1)));            
+            coinbaseOutValues = outValues;
+            coinbaseTxHash = curTxHash;
+        }             
+    }
+
+    virtual void endBlock(const Block *b) {
+        processTX(coinbaseInRanges, coinbaseOutValues, coinbaseTxHash, true);
+    }  
     
     virtual void edge(
         uint64_t      value,
@@ -157,8 +176,13 @@ struct FTS_UTXO: public Callback
         const uint8_t *inputScript,
         uint64_t      inputScriptSize)
         {
+            curTxHasInputs = true;
             Outpoint outpt(upTXHash, outputIndex);
-            inRanges.push_back(utxoRanges[outpt]);
+            SatoshiRanges& sr = utxoRanges[outpt];
+            for (SatoshiRanges::iterator it = sr.begin(); it != sr.end(); ++it) {
+                inRanges.push_back(*it);
+                satoshiMap.erase(it->first);
+            }
             utxoRanges.erase(outpt);
         }
    
@@ -178,18 +202,22 @@ struct FTS_UTXO: public Callback
     virtual void wrapup()
     {
         info("done\n");
+        std::cout << "UTXO count: " << utxoRanges.size() << std::endl
+                  << "Range count: " << satoshiMap.size() << std::endl;
+
+        double endt = usecs();
+        info("first  pass done in %.3f seconds\n", (endt - startFirstPass)*1e-6);
+        info("second pass done in %.3f seconds\n", (endt - startSecondPass)*1e-6);
+
 
         printf("\n");
         exit(0);
     }
 
-    virtual void startBlock(
-        const Block *b,
-        uint64_t chainSize
-    )
+    virtual void startBlock(const Block *b, uint64_t chainSize)
     {
         curHeight = b->height;
-        std::cout << "parsing block " << curHeight << std::endl;        
+        std::cout << "parsing block " << curHeight << std::endl;
 
         if(0<=cutoffBlock && cutoffBlock<=b->height) {
             wrapup();
