@@ -13,6 +13,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <iostream>
+
 #if !defined(O_DIRECT)
 #   define O_DIRECT 0
 #endif
@@ -382,15 +384,14 @@ static void mapBlockChainFiles()
 
 
     std::string homeDir(home);
-    std::string blockDir = homeDir + coinName + std::string("blocks");
-
+    std::string dataDir = homeDir + coinName;
     // override?
-
     const char *datadir= getenv("DATADIR");
     if (datadir) {
-        std::string dataDir(datadir);
-        blockDir = dataDir + std::string("blocks");
+        dataDir = datadir;
     }
+
+    std::string blockDir = dataDir + std::string("blocks");
 
     struct stat statBuf;
     int r = stat(blockDir.c_str(), &statBuf);
@@ -403,10 +404,7 @@ static void mapBlockChainFiles()
         char buf[64];
         sprintf(buf, fmt, blkDatId++);
 
-        std::string blockMapFileName =
-            homeDir                             +
-            coinName                            +
-            std::string(buf)
+        std::string blockMapFileName = dataDir + std::string(buf)
         ;
 
         int blockMapFD = open(blockMapFileName.c_str(), O_DIRECT | O_RDONLY);
@@ -570,9 +568,13 @@ static void buildAllBlocks()
     auto i = mapVec.begin();
     while(i!=e) {
 
+
         const Map *map = gCurMap = &(*(i++));
         const uint8_t *end = map->size + map->p;
         const uint8_t *p = map->p;
+
+        std::cout << "Processing " << map->name << std::endl;
+        std::cout << int64_t(p) << " " << int64_t(end) << std::endl;
 
         startMap(p);
 
