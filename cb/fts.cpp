@@ -17,7 +17,6 @@
 
 typedef std::pair<uint64_t, uint64_t> SatoshiRange;
 typedef std::vector<SatoshiRange> SatoshiRanges;
-typedef std::vector<SatoshiRanges> ManySatoshiRanges;
 
 struct Outpoint {
     uint256_t txhash;
@@ -40,7 +39,7 @@ struct Outpoint {
 };
 
 typedef std::map<Outpoint, SatoshiRanges> TSRMap;
-typedef std::map<uint64_t, Outpoint> SatoshiMap;
+typedef std::map<SatoshiRange, Outpoint> SatoshiMap;
 
 uint64_t satoshiBeforeBlock(int height) {
     return (height-1) * 50 * uint64_t(100000000); // TODO: fixme
@@ -60,7 +59,6 @@ struct FTS_UTXO: public Callback
     bool curTxHasInputs;
 
     double startFirstPass, startSecondPass;
-
 
     FTS_UTXO()
     {
@@ -131,7 +129,7 @@ struct FTS_UTXO: public Callback
                 val_left -= (orange.second - orange.first);
                 curRange.first = orange.second;
                 outRanges.push_back(orange);
-                satoshiMap.insert(std::pair<uint64_t, Outpoint>(orange.first, outpt));
+                satoshiMap.insert(SatoshiMap::value_type(orange, outpt));
                 //if (!isCoinbase)
                 //std::cout << i << ":" <<  orange.first << ":" << orange.second << std::endl;
             }
@@ -147,7 +145,16 @@ struct FTS_UTXO: public Callback
                 ++inRangeIt;
             }
         } else {
-            // TODO
+            Outpoint outpt(curTxHash, -1);
+            if (curRange.first != curRange.second) {
+                std::cout << "coin range destroyed:" << curRange.first << ":" << curRange.second << std::endl;
+                satoshiMap.insert(SatoshiMap::value_type(curRange, outpt));
+            }
+            while (inRangeIt != inRanges.end()) {
+                std::cout << "coin range destroyed:" << inRangeIt->first << ":" << inRangeIt->second << std::endl;
+                satoshiMap.insert(SatoshiMap::value_type(*inRangeIt, outpt));
+                ++inRangeIt;
+            }
         }
     }
 
@@ -183,7 +190,7 @@ struct FTS_UTXO: public Callback
             SatoshiRanges& sr = utxoRanges[outpt];
             for (SatoshiRanges::iterator it = sr.begin(); it != sr.end(); ++it) {
                 inRanges.push_back(*it);
-                satoshiMap.erase(it->first);
+                satoshiMap.erase(*it);
             }
             utxoRanges.erase(outpt);
         }
@@ -201,16 +208,44 @@ struct FTS_UTXO: public Callback
         }
     
     bool find_txout(uint64_t satoshi, Outpoint& op) {
-        SatoshiMap::iterator it = satoshiMap.upper_bound(satoshi); // next range
-        if (it == satoshiMap.begin())
-            return false;
+        SatoshiRange sr(satoshi, satoshi + 1);
+        SatoshiMap::iterator it = satoshiMap.upper_bound(sr); // next range
         if (it == satoshiMap.end()) {
             //TODO: check out of range here
             return false;
-            op = satoshiMap.rbegin()->second;
-        } else
-            op = (--it)->second;
+            //op = satoshiMap.rbegin()->second;
+        } else {
+            sr = it->first;
+            if (sr.first > satoshi) {
+                --it;
+                sr = it->first;
+            }
+            if (! ((sr.first <= satoshi) && (satoshi < sr.second))) {
+                std::cout << "error in find_txout:" << sr.first << " " << satoshi << " " << sr.second << std::endl;
+                return false;
+            }
+            op = it->second;
+        }
         return true;
+    }
+
+    uint64_t integrity_check() {
+        SatoshiRange prev(0, 0);
+        for (SatoshiMap::iterator it = satoshiMap.begin(); it != satoshiMap.end(); ++it) {
+            SatoshiRange sr = it->first;
+            if (sr.first != prev.second) {
+                if (prev.second < sr.first) {
+                    std::cout << "satoshi hole:" << std::endl;
+                } else {
+                    std::cout << "wtf:" << std::endl;
+                }
+                std::cout << prev.first <<  ":" << prev.second << std::endl;
+                std::cout << sr.first <<  ":" << sr.second << std::endl;
+            }
+            prev = sr;
+        }
+        std::cout << "last satoshi: " << prev.second << std::endl;        
+        return prev.second;
     }
 
     virtual void wrapup()
@@ -222,6 +257,8 @@ struct FTS_UTXO: public Callback
         double endt = usecs();
         info("first  pass done in %.3f seconds\n", (endt - startFirstPass)*1e-6);
         info("second pass done in %.3f seconds\n", (endt - startSecondPass)*1e-6);
+        
+        integrity_check();
 
         std::ifstream inf("fts.target");
         while (inf.good()) {
