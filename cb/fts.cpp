@@ -53,12 +53,15 @@ struct FTS_UTXO: public Callback
     SatoshiMap satoshiMap;
 
     SatoshiRanges inRanges, coinbaseInRanges;
-    std::vector<uint64_t> outValues, coinbaseOutValues;
-    Hash160 curTxHash, coinbaseTxHash;
+    std::vector<uint64_t> outValues, coinbaseOutValues, debugTargets;
+    Hash256 curTxHash, coinbaseTxHash;
     uint64_t curHeight;
     bool curTxHasInputs;
 
     double startFirstPass, startSecondPass;
+
+    
+
 
     FTS_UTXO()
     {
@@ -89,6 +92,16 @@ struct FTS_UTXO: public Callback
         if(0<=cutoffBlock) {
             info("only taking into account transactions before block %" PRIu64 "\n", cutoffBlock);
         }
+
+
+        std::ifstream inf("fts.debug.target");
+        while (inf.good()) {
+            uint64_t satoshi;
+            inf >> satoshi;
+            if (inf.good()) 
+                debugTargets.push_back(satoshi);
+        }
+        
         
         info("analyzing blockchain ...");
         startFirstPass = usecs();
@@ -130,8 +143,17 @@ struct FTS_UTXO: public Callback
                 curRange.first = orange.second;
                 outRanges.push_back(orange);
                 satoshiMap.insert(SatoshiMap::value_type(orange, outpt));
-                //if (!isCoinbase)
-                //std::cout << i << ":" <<  orange.first << ":" << orange.second << std::endl;
+                
+                for (std::vector<uint64_t>::iterator it = debugTargets.begin(); it != debugTargets.end(); ++it) {
+                    if ((orange.first <= *it) && (*it < orange.second)) {
+                        uint64_t offset = (*it) - orange.first;
+                        std::cout << "debug:" << (*it) << " went to ";
+                        showHex(curTxHash);
+                        std::cout << ":" << i << ":" << isCoinbase << " offset:" << offset  << std::endl;
+                    }
+                }
+                    
+
             }
             utxoRanges.insert(std::pair<Outpoint, SatoshiRanges>(outpt, outRanges));
         }
