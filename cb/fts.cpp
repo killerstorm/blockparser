@@ -286,8 +286,9 @@ struct FTS_UTXO: public Callback
         while (inf.good()) {
           uint64_t satoshi;
           inf >> satoshi;
-          std::cout << satoshi << " ";
           if (inf.good()) {
+              std::cout << "target:" << satoshi << " ";
+              
               Outpoint op;
               if (find_txout(satoshi, op)) {
                   showHex(op.txhash.v);
