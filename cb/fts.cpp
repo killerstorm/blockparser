@@ -62,10 +62,11 @@ struct FTS_UTXO: public Callback
 
     double startFirstPass, startSecondPass;
 
-    
+    int inputs_scanned, outputs_scanned;
 
 
     FTS_UTXO()
+	:inputs_scanned(0), outputs_scanned(0)
     {
         parser
             .usage("[options]")
@@ -209,6 +210,7 @@ struct FTS_UTXO: public Callback
         const uint8_t *inputScript,
         uint64_t      inputScriptSize)
         {
+            inputs_scanned ++;
             curTxHasInputs = true;
             Outpoint outpt(upTXHash, outputIndex);
             SatoshiRanges& sr = utxoRanges[outpt];
@@ -228,6 +230,7 @@ struct FTS_UTXO: public Callback
         uint64_t      outputScriptSize      // Byte size of raw script
         )
         {
+            outputs_scanned ++;
             outValues.push_back(value);            
         }
     
@@ -279,8 +282,9 @@ struct FTS_UTXO: public Callback
                   << "Range count: " << satoshiMap.size() << std::endl;
 
         double endt = usecs();
-        info("first  pass done in %.3f seconds\n", (endt - startFirstPass)*1e-6);
+        info("first  pass done in %.3f seconds\n", (startSecondPass - startFirstPass)*1e-6);
         info("second pass done in %.3f seconds\n", (endt - startSecondPass)*1e-6);
+        info("scanned: inputs: %i, outputs: %i\n", inputs_scanned, outputs_scanned);
         
         uint64_t last_satoshi = integrity_check();
 
@@ -305,7 +309,7 @@ struct FTS_UTXO: public Callback
         printf("\n");
 
         
-        const size_t nlookups = 10000;
+        const size_t nlookups = 1000000;
         std::vector<uint64_t> test_satoshi;
         std::mt19937 rng;
         std::uniform_int_distribution<std::mt19937::result_type> sat_dist(0, last_satoshi - 1);
