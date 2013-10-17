@@ -15,6 +15,8 @@
 #include <iostream>
 #include <fstream>
 
+#include <random>
+
 typedef std::pair<uint64_t, uint64_t> SatoshiRange;
 typedef std::vector<SatoshiRange> SatoshiRanges;
 
@@ -280,7 +282,7 @@ struct FTS_UTXO: public Callback
         info("first  pass done in %.3f seconds\n", (endt - startFirstPass)*1e-6);
         info("second pass done in %.3f seconds\n", (endt - startSecondPass)*1e-6);
         
-        integrity_check();
+        uint64_t last_satoshi = integrity_check();
 
         std::ifstream inf("fts.target");
         while (inf.good()) {
@@ -301,6 +303,26 @@ struct FTS_UTXO: public Callback
           }
         }
         printf("\n");
+
+        
+        const size_t nlookups = 10000;
+        std::vector<uint64_t> test_satoshi;
+        std::mt19937 rng;
+        std::uniform_int_distribution<std::mt19937::result_type> sat_dist(0, last_satoshi - 1);
+        for(int i = 0; i < nlookups; ++i) {
+            test_satoshi.push_back(sat_dist(rng));
+        }
+        double startThirdPass = usecs();
+        int meaningless = 0;
+        for (int i = 0; i < nlookups; ++ i) {
+            Outpoint op;
+            if (find_txout(test_satoshi[i], op))
+                meaningless += op.outindex;
+        }
+        endt = usecs();
+        info("third  pass done in %.3f seconds\n", (endt - startThirdPass)*1e-6);
+        std::cout << meaningless << std::endl;
+
         exit(0);
     }
 
