@@ -40,7 +40,7 @@ struct Outpoint {
     }
 };
 
-typedef std::map<Outpoint, SatoshiRanges> TSRMap;
+typedef std::map<Outpoint, SatoshiRanges*> TSRMap;
 typedef std::map<SatoshiRange, Outpoint> SatoshiMap;
 
 uint64_t satoshiBeforeBlock(int height) {
@@ -158,7 +158,8 @@ struct FTS_UTXO: public Callback
                     
 
             }
-            utxoRanges.insert(std::pair<Outpoint, SatoshiRanges>(outpt, outRanges));
+            SatoshiRanges *r = new SatoshiRanges(outRanges);
+            utxoRanges.insert(std::pair<Outpoint, SatoshiRanges*>(outpt, r));
         }
 
         if (!isCoinbase) {
@@ -213,11 +214,12 @@ struct FTS_UTXO: public Callback
             inputs_scanned ++;
             curTxHasInputs = true;
             Outpoint outpt(upTXHash, outputIndex);
-            SatoshiRanges& sr = utxoRanges[outpt];
-            for (SatoshiRanges::iterator it = sr.begin(); it != sr.end(); ++it) {
+            SatoshiRanges* sr = utxoRanges[outpt];
+            for (SatoshiRanges::iterator it = sr->begin(); it != sr->end(); ++it) {
                 inRanges.push_back(*it);
                 satoshiMap.erase(*it);
             }
+            delete sr;
             utxoRanges.erase(outpt);
         }
    
